@@ -373,6 +373,7 @@ class TestVSCode_launch(lldbvscode_testcase.VSCodeTestCaseBase):
         '''
         self.build_and_create_debug_adaptor()
         program = self.getBuildArtifact("a.out")
+        execSearchPaths = '/unique/path/to/symbols/launch/test'
 
         source = 'main.c'
         first_line = line_number(source, '// breakpoint 1')
@@ -382,6 +383,7 @@ class TestVSCode_launch(lldbvscode_testcase.VSCodeTestCaseBase):
         # also we can verify that "stopCommands" get run as the
         # breakpoints get hit
         launchCommands = [
+            'settings set target.exec-search-paths "%s"' % (execSearchPaths),
             'target create "%s"' % (program),
             'br s -f main.c -l %d' % first_line,
             'br s -f main.c -l %d' % second_line,
@@ -391,7 +393,7 @@ class TestVSCode_launch(lldbvscode_testcase.VSCodeTestCaseBase):
         initCommands = ['target list', 'platform list']
         preRunCommands = ['image list a.out', 'image dump sections a.out']
         stopCommands = ['frame variable', 'bt']
-        exitCommands = ['expr 2+3', 'expr 3+4']
+        exitCommands = ['expr 2+3', 'expr 3+4', 'settings show target.exec-search-paths']
         self.launch(program,
                     initCommands=initCommands,
                     preRunCommands=preRunCommands,
@@ -428,6 +430,8 @@ class TestVSCode_launch(lldbvscode_testcase.VSCodeTestCaseBase):
         # "exitCommands" that were run after the second breakpoint was hit
         output = self.get_console(timeout=1.0)
         self.verify_commands('exitCommands', output, exitCommands)
+        # confirm that output contains correct target.exec-search-paths value
+        self.verify_contains_text('exitCommands', output, execSearchPaths)
 
     @skipIfWindows
     @skipIfNetBSD # Hangs on NetBSD as well
@@ -440,7 +444,7 @@ class TestVSCode_launch(lldbvscode_testcase.VSCodeTestCaseBase):
         '''
         self.build_and_create_debug_adaptor()
         program = self.getBuildArtifact("a.out")
-        
+
         terminateCommands = ['expr 4+2']
         self.launch(program=program,
                     terminateCommands=terminateCommands)

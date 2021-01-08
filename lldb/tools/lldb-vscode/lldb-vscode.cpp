@@ -578,28 +578,45 @@ void request_attach(const llvm::json::Object &request) {
   // Run any initialize LLDB commands the user specified in the launch.json
   g_vsc.RunInitCommands();
 
-  lldb::SBError status;
-  g_vsc.SetTarget(g_vsc.CreateTargetFromArguments(*arguments, status));
-  if (status.Fail()) {
-    response["success"] = llvm::json::Value(false);
-    EmplaceSafeString(response, "message", status.GetCString());
-    g_vsc.SendJSON(llvm::json::Value(std::move(response)));
-    return;
-  }
+  if (!attachCommands.empty()) {
+    // We have "attachCommands" that are a set of commands that are expected
+    // to execute the commands after which a process should be created. If there
+    // is no valid process after running these commands, we have failed.
 
-  // Run any pre run LLDB commands the user specified in the launch.json
-  g_vsc.RunPreRunCommands();
-
-  if (pid == LLDB_INVALID_PROCESS_ID && wait_for) {
-    char attach_msg[256];
-    auto attach_msg_len = snprintf(attach_msg, sizeof(attach_msg),
-                                   "Waiting to attach to \"%s\"...",
-                                   g_vsc.target.GetExecutable().GetFilename());
-    g_vsc.SendOutput(OutputType::Console,
-                     llvm::StringRef(attach_msg, attach_msg_len));
+    // Run any pre run LLDB commands the user specified in the launch.json
+    g_vsc.RunPreRunCommands();
+    g_vsc.RunLLDBCommands("Running attachCommands:", attachCommands);
+    // The custom commands are expected to create a new target
+    if (g_vsc.debugger.GetNumTargets() > 0) {
+      g_vsc.SetTarget(g_vsc.debugger.GetSelectedTarget());
+    }
+    else {
+      error.SetErrorString("attachCommands failed to create target");
+    }
   }
-  if (attachCommands.empty()) {
+  else {
     // No "attachCommands", just attach normally.
+    lldb::SBError status;
+    g_vsc.SetTarget(g_vsc.CreateTargetFromArguments(*arguments, status));
+    if (status.Fail()) {
+      response["success"] = llvm::json::Value(false);
+      EmplaceSafeString(response, "message", status.GetCString());
+      g_vsc.SendJSON(llvm::json::Value(std::move(response)));
+      return;
+    }
+
+    // Run any pre run LLDB commands the user specified in the launch.json
+    g_vsc.RunPreRunCommands();
+
+    if (pid == LLDB_INVALID_PROCESS_ID && wait_for) {
+      char attach_msg[256];
+      auto attach_msg_len = snprintf(attach_msg, sizeof(attach_msg),
+                                    "Waiting to attach to \"%s\"...",
+                                    g_vsc.target.GetExecutable().GetFilename());
+      g_vsc.SendOutput(OutputType::Console,
+                      llvm::StringRef(attach_msg, attach_msg_len));
+    }
+
     // Disable async events so the attach will be successful when we return from
     // the launch call and the launch will happen synchronously
     g_vsc.debugger.SetAsync(false);
@@ -609,14 +626,6 @@ void request_attach(const llvm::json::Object &request) {
       g_vsc.target.LoadCore(core_file.data(), error);
     // Reenable async events
     g_vsc.debugger.SetAsync(true);
-  } else {
-    // We have "attachCommands" that are a set of commands that are expected
-    // to execute the commands after which a process should be created. If there
-    // is no valid process after running these commands, we have failed.
-    g_vsc.RunLLDBCommands("Running attachCommands:", attachCommands);
-    // The custom commands might have created a new target so we should use the
-    // selected target after these commands are run.
-    g_vsc.target = g_vsc.debugger.GetSelectedTarget();
   }
 
   SetSourceMapFromArguments(*arguments);
@@ -1547,67 +1556,78 @@ void request_launch(const llvm::json::Object &request) {
 
   SetSourceMapFromArguments(*arguments);
 
-  lldb::SBError status;
-  g_vsc.SetTarget(g_vsc.CreateTargetFromArguments(*arguments, status));
-  if (status.Fail()) {
-    response["success"] = llvm::json::Value(false);
-    EmplaceSafeString(response, "message", status.GetCString());
-    g_vsc.SendJSON(llvm::json::Value(std::move(response)));
-    return;
+  if (!launchCommands.empty()) {
+    // if "launchCommands" are provided, then they are expected to make the launch happen for launch requests
+    // and they replace the normal logic that would implement the launch.
+    // Run any pre run LLDB commands the user specified in the launch.json
+    g_vsc.RunPreRunCommands();
+    g_vsc.RunLLDBCommands("Running launchCommands:", launchCommands);
+    // The custom commands are expected to create a new target
+    if (g_vsc.debugger.GetNumTargets() > 0) {
+      g_vsc.SetTarget(g_vsc.debugger.GetSelectedTarget());
+    }
+    else {
+      error.SetErrorString("launchCommands failed to create target");
+    }
   }
+  else {
+    // the normal logic that would implement the launch
+    lldb::SBError status;
+    g_vsc.SetTarget(g_vsc.CreateTargetFromArguments(*arguments, status));
+    if (status.Fail()) {
+      response["success"] = llvm::json::Value(false);
+      EmplaceSafeString(response, "message", status.GetCString());
+      g_vsc.SendJSON(llvm::json::Value(std::move(response)));
+      return;
+    }
 
-  if (GetBoolean(arguments, "runInTerminal", false)) {
-    request_runInTerminal(request, response);
-    g_vsc.SendJSON(llvm::json::Value(std::move(response)));
-    return;
-  }
+    if (GetBoolean(arguments, "runInTerminal", false)) {
+      request_runInTerminal(request, response);
+      g_vsc.SendJSON(llvm::json::Value(std::move(response)));
+      return;
+    }
 
-  // Instantiate a launch info instance for the target.
-  auto launch_info = g_vsc.target.GetLaunchInfo();
+    // Instantiate a launch info instance for the target.
+    auto launch_info = g_vsc.target.GetLaunchInfo();
 
-  // Grab the current working directory if there is one and set it in the
-  // launch info.
-  const auto cwd = GetString(arguments, "cwd");
-  if (!cwd.empty())
-    launch_info.SetWorkingDirectory(cwd.data());
+    // Grab the current working directory if there is one and set it in the
+    // launch info.
+    const auto cwd = GetString(arguments, "cwd");
+    if (!cwd.empty())
+      launch_info.SetWorkingDirectory(cwd.data());
 
-  // Extract any extra arguments and append them to our program arguments for
-  // when we launch
-  auto args = GetStrings(arguments, "args");
-  if (!args.empty())
-    launch_info.SetArguments(MakeArgv(args).data(), true);
+    // Extract any extra arguments and append them to our program arguments for
+    // when we launch
+    auto args = GetStrings(arguments, "args");
+    if (!args.empty())
+      launch_info.SetArguments(MakeArgv(args).data(), true);
 
-  // Pass any environment variables along that the user specified.
-  auto envs = GetStrings(arguments, "env");
-  if (!envs.empty())
-    launch_info.SetEnvironmentEntries(MakeArgv(envs).data(), true);
+    // Pass any environment variables along that the user specified.
+    auto envs = GetStrings(arguments, "env");
+    if (!envs.empty())
+      launch_info.SetEnvironmentEntries(MakeArgv(envs).data(), true);
 
-  auto flags = launch_info.GetLaunchFlags();
+    auto flags = launch_info.GetLaunchFlags();
 
-  if (GetBoolean(arguments, "disableASLR", true))
-    flags |= lldb::eLaunchFlagDisableASLR;
-  if (GetBoolean(arguments, "disableSTDIO", false))
-    flags |= lldb::eLaunchFlagDisableSTDIO;
-  if (GetBoolean(arguments, "shellExpandArguments", false))
-    flags |= lldb::eLaunchFlagShellExpandArguments;
-  const bool detatchOnError = GetBoolean(arguments, "detachOnError", false);
-  launch_info.SetDetachOnError(detatchOnError);
-  launch_info.SetLaunchFlags(flags | lldb::eLaunchFlagDebug |
-                             lldb::eLaunchFlagStopAtEntry);
+    if (GetBoolean(arguments, "disableASLR", true))
+      flags |= lldb::eLaunchFlagDisableASLR;
+    if (GetBoolean(arguments, "disableSTDIO", false))
+      flags |= lldb::eLaunchFlagDisableSTDIO;
+    if (GetBoolean(arguments, "shellExpandArguments", false))
+      flags |= lldb::eLaunchFlagShellExpandArguments;
+    const bool detachOnError = GetBoolean(arguments, "detachOnError", false);
+    launch_info.SetDetachOnError(detachOnError);
+    launch_info.SetLaunchFlags(flags | lldb::eLaunchFlagDebug |
+                              lldb::eLaunchFlagStopAtEntry);
 
-  // Run any pre run LLDB commands the user specified in the launch.json
-  g_vsc.RunPreRunCommands();
-  if (launchCommands.empty()) {
+    // Run any pre run LLDB commands the user specified in the launch.json
+    g_vsc.RunPreRunCommands();
+
     // Disable async events so the launch will be successful when we return from
     // the launch call and the launch will happen synchronously
     g_vsc.debugger.SetAsync(false);
     g_vsc.target.Launch(launch_info, error);
     g_vsc.debugger.SetAsync(true);
-  } else {
-    g_vsc.RunLLDBCommands("Running launchCommands:", launchCommands);
-    // The custom commands might have created a new target so we should use the
-    // selected target after these commands are run.
-    g_vsc.target = g_vsc.debugger.GetSelectedTarget();
   }
 
   if (error.Fail()) {

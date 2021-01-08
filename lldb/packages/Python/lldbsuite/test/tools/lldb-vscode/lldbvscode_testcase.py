@@ -126,6 +126,13 @@ class VSCodeTestCaseBase(TestBase):
                             "verify '%s' found in console output for '%s'" % (
                                 cmd, flavor))
 
+    def verify_contains_text(self, flavor, output, text):
+        self.assertTrue(output and len(output) > 0, "expect console output")
+        found = text in output
+        self.assertTrue(found,
+                        "verify '%s' found in console output for '%s'" % (
+                            text, flavor))
+
     def get_dict_value(self, d, key_path):
         '''Verify each key in the key_path array is in contained in each
            dictionary within "d". Assert if any key isn't in the

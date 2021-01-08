@@ -85,7 +85,7 @@
 						"properties": {
 							"program": {
 								"type": "string",
-								"description": "Path to the program to debug."
+								"description": "Path to the program to debug. Ignored if \"launchCommands\" is provided."
 							},
 							"args": {
 								"type": [
@@ -163,7 +163,7 @@
 							},
 							"launchCommands": {
 								"type": "array",
-								"description": "Custom commands that are executed instead of launching a process. A target will be created with the launch arguments prior to executing these commands. The commands may optionally create a new target and must perform a launch. A valid process must exist after these commands complete or the \"launch\" will fail.",
+								"description": "Custom commands that are executed instead of launching a process. The commands must create a target and must perform a launch. A valid process must exist after these commands complete or the \"launch\" will fail. The following settings will be ignored if provided: \"program\", \"cwd\", \"args\", \"env\", \"disableASLR\", \"disableSTDIO\", \"shellExpandArguments\", \"detachOnError\", \"runInTerminal\", \"targetTriple\", \"platformName\"",
 								"default": []
 							},
 							"stopCommands": {
@@ -187,18 +187,18 @@
 						"properties": {
 							"program": {
 								"type": "string",
-								"description": "Path to the program to attach to."
+								"description": "Path to the program to attach to. Ignored if \"attachCommands\" is provided."
 							},
 							"pid": {
 								"type": [
 									"number",
 									"string"
 								],
-								"description": "System process ID to attach to."
+								"description": "System process ID to attach to. Ignored if \"attachCommands\" is provided."
 							},
 							"waitFor": {
 								"type": "boolean",
-								"description": "If set to true, then wait for the process to launch by looking for a process with a basename that matches `program`. No process ID needs to be specified when using this flag.",
+								"description": "If set to true, then wait for the process to launch by looking for a process with a basename that matches `program`. No process ID needs to be specified when using this flag. Ignored if \"attachCommands\" is provided.",
 								"default": true
 							},
 							"sourcePath": {
@@ -224,7 +224,7 @@
 							},
 							"attachCommands": {
 								"type": "array",
-								"description": "Custom commands that are executed instead of attaching to a process ID or to a process by name. These commands may optionally create a new target and must perform an attach. A valid process must exist after these commands complete or the \"attach\" will fail.",
+								"description": "Custom commands that are executed instead of attaching to a process ID or to a process by name. These commands must create a target and must perform an attach. A valid process must exist after these commands complete or the \"attach\" will fail. The following settings will be ignored if provided: \"program\", \"pid\", \"waitFor\", \"coreFile\", \"targetTriple\", \"platformName\"",
 								"default": []
 							},
 							"initCommands": {
